@@ -1,9 +1,43 @@
+/*
+
+IC tester
+
+Author: Nick Gammon
+Date: 6 Jan 2022
+
+Written and tested on Arduino Uno, however should work on other devices with at least
+16 spare pins for connecting to the device to be tested.
+
+Concepts and chip test data from: https://www.instructables.com/Arduino-IC-Tester/
+
+The page the test data was linked to gave permission for its use:
+
+  Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0)
+
+This code is released under the same license.
+
+License: https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+
+DuT = Device under Test
+
+*/
+
+// Mapping of chip pins (from chip socket) to Arduino pins
+
+// DuT pin:             1  2  3  4  5  6  7          8   9  10  11  12  13  14
+//                     -------------------------------------------------------
 int chipPins14 [14] = {10, 9, 8, 7, 6, 5, 4,        12, A5, A4, A3, A2, A1, A0};
+
+// DuT pin:             1  2  3  4  5  6  7  8   9  10  11  12  13  14  15  16
+//                     -------------------------------------------------------
 int chipPins16 [16] = {10, 9, 8, 7, 6, 5, 4, 3, 11, 12, A5, A4, A3, A2, A1, A0};
 
-int * pinsMap;  // will point to either of the above
-byte numberOfPins;
+// These two global variables are set up when a requested chip is found
+int * pinsMap;      // will point to either of the above
+byte numberOfPins;  // how many pins it has
 
+// optional LED - flashes to show we are testing
 int INDICATOR_LED = 2;
 
 // how much serial data from the user we expect before a newline
@@ -14,11 +48,63 @@ const byte MAX_PINS = 16;  // for storing one test line
 
 // the current chip name
 char chipName [MAX_INPUT + 1];
+
 // pointer to current chip info (starts with number of pins)
 const char * chipInfo = NULL;
 
 // testing data (multi-line raw string)
 
+/*
+   CHIP DATA
+
+   $xxxx = chip name - used for searching (Note: 74LS00, for example, is here as 7400)
+   xx    = number of pins (currently 14 and 16 supported)
+
+   Then one or more lines of 14/16 characters indicating the test condition
+   and expected results.
+
+   Test data terminated by "$" for the next chip, or "&" for the end of the list.
+   
+   V = Vcc (ie. +5V)
+   G = Gnd
+
+   0/1 = Set this pin to LOW/HIGH (output from sketch, input to DuT)
+   L/H = Expect LOW/HIGH from device (input into sketch, output from DuT)
+   X =   Ignore (set pin to high impedance and do not test it)
+
+   Clock pulses are for toggling a pin prior to the test (eg. for serial shift registers)
+   C =   Pulse clock (normally LOW, pulse to HIGH, and back to LOW)
+   c =   Pulse clock (normally HIGH, pulse to LOW, and back to HIGH)
+
+
+  NB: Changed chip 74193 to be different from the file downloaded above.
+      According to the datasheet, the clock lines CPD and CPU (clock down and clock up)
+      should be high while the other one is pulsed. Thus, they need to be normally high
+      (and pulsed low) to avoid a spurious extra clock pulse. However the chip increments
+      or decrements the counter on the rising edge. This still works done this way, however
+      the results are not what are shown in the file (link below). To pulse HIGH->LOW rather
+      than LOW->HIGH I introduced the lower-case code "c" for this action.
+
+  Copy/paste data for desired chips from the larger test file available from:
+
+     http://gammon.com.au/Arduino/test_16_full_0004.dat
+     
+  (Not all will fit into memory).
+
+  No warranty is given as to the correctness of the file or test data. I have tested on a few
+  chips I have to hand and the test data works OK on them. Specifically:
+    7404, 7408, 7430, 74163, 74173, 74193, 4030
+
+  WARNING:
+
+    Because Gnd and Vcc are supplied through the (recommended) 330 ohm current-limiting resistors
+    you may get incorrect results for some chips. In those cases you are advised to manually
+    connect Vcc for the DuT to +5V on the Arduino, and Gnd for the DuT to Gnd on the Arduino.
+    For many chips Vcc is the highest pin (14 or 16 as the case may be) and Gnd will be pin 7
+    (for 14-pin chips) or pin 8 (for 16-pin chips).
+    
+    
+ */
 const char chipData[] PROGMEM = R"(0001
 $4013
 14
@@ -116,16 +202,28 @@ $7410
 01101HGH101H1V
 11011HGH011H0V
 11111LGL111L1V
+$7430
+14
+111111GL00110V
+011111GH00110V
+101111GH00110V
+110111GH00110V
+111011GH00110V
+111101GH00110V
+111110GH00110V
+111111GH00010V
+111111GH00100V
+100000GH00000V
 $74193
 16
 1HH00HHG110XX01V
-1HLC1HHG111XX01V
-1LHC1HHG111XX01V
-1LLC1HHG111XX01V
-1HH1CLHG111XX01V
-1LL1CHHG111XX01V
-1LH1CHHG111XX01V
-1LLC1LLG111XX11V
+1HLc1HHG111XX01V
+1LHc1HHG111XX01V
+1LLc1HHG111XX01V
+1LH1cHHG111XX01V
+1HL1cHHG111XX01V
+1HH1cHHG111XX01V
+1LLc1LLG111XX11V
 $74173
 16
 00LLLLCG0000001V
@@ -149,19 +247,60 @@ $4031
 0CXXXLHGX0XXXX0V
 1CXXXHLGX1XXXX0V
 0CXXXLHGX1XXXX0V
-)";
+$74161
+16 
+0100000G00LLLLLV
+0100001G11LLLLLV
+1C00001G10LLLLLV
+1C00000G11LLLLLV
+1C00000G10LLLLLV
+1C00000G00LLLLLV
+1C00111G01HHLLLV
+1C00001G11HHLHLV
+1C00001G11HHHLLV
+1C00001G11HHHHHV
+1C00001G11LLLLLV
+1C00001G11LLLHLV
+1100001G11LLHLLV
+1000001G11LLHLLV
+0000001G11LLLLLV
+1C00001G11XXXXXV
+$74162
+16 
+0100000G00XXXXXV
+0C00000G00LLLLLV
+0C00000G00LLLLLV
+0C10000G11LLLLLV
+1C00001G10LLLLLV
+1C00000G11LLLLLV
+0C00000G11LLLLLV
+1C11100G00LHHHLV
+1C00111G11HLLLLV
+1C00001G11HLLHHV
+1C00001G11LLLLLV
+1C00001G11LLLHLV
+1C00001G11LLHLLV
+1100001G11LLHHLV
+0100001G11LLHHLV
+0000001G11LLHHLV
+0100001G11LLLLLV
+1C00001G11XXXXXV
+&)";
 
 
 void setup()
   {
 
   Serial.begin (115200);
-  Serial.println (F("IC tester"));
-  Serial.println (F("Enter L to list known chips"));
+  Serial.println (F("IC tester - written by Nick Gammon."));
+  Serial.println (F("Version 1.0. Date: 6 January 2022."));
+  Serial.println (F("Enter L to list known chips."));
   pinMode (INDICATOR_LED, OUTPUT);
   digitalWrite (INDICATOR_LED, LOW);
   } // end of setup
 
+// For checking your wiring, put LEDs into each pin on the chip socket
+// and call this from setup. It should sequence through each pin in pin order.
 void testLEDs ()
 {
 
@@ -205,7 +344,7 @@ void listChips ()
   Serial.println ();
   } // end of listChips
 
-// find a chip in the chip table, return a pointer to the start of the chip info
+// find a chip in the chip table, return true if found
 bool searchForChip (const char * which)
   {
   // point to start of known chips data
@@ -229,20 +368,18 @@ bool searchForChip (const char * which)
     else if (c == '\n')
       {
       // finish line if we previously had a chip number
+        
       if (gotChip)
         {
-        *p = 0;
-        Serial.println (chipName);
-        }
-
-      if (gotChip && strcmp (which, chipName) == 0)
-        {
         *p = 0;  // terminate name string
-        Serial.print (F("Chip "));
-        Serial.print (which);
-        Serial.println (F(" found! Type T to test it."));
-        return true;
-        }
+        if (strcmp (which, chipName) == 0)
+          {
+          Serial.print (F("Chip "));
+          Serial.print (which);
+          Serial.println (F(" found! Type T to test it."));
+          return true;
+          } // if correct chip
+        }  // if on chip name line
       gotChip = false;
       }
     else if (gotChip)
@@ -263,14 +400,23 @@ bool searchForChip (const char * which)
   return false;
   } // end of searchForChip
 
-int singleTest (const char * testLine)
+void showNumber (const int which)
+  {
+  if (which < 9)
+    Serial.print (F(" "));
+  Serial.print (which + 1);
+  } // end of showNumber
+  
+int singleTest (const char * testLine, const int testNumber)
   {
   byte i;
   int failed = 0;
 
   digitalWrite (INDICATOR_LED, HIGH);
 
-  Serial.print (F("Testing case: "));
+  Serial.print (F("Testing case "));
+  showNumber (testNumber);
+  Serial.print (F(": "));
   Serial.print (testLine);
 
 
@@ -300,7 +446,7 @@ int singleTest (const char * testLine)
       pinMode (pinsMap [i], OUTPUT);
       }
     // supply a HIGH
-    else if (testLine [i] == '1')
+    else if (testLine [i] == '1' || testLine [i] == 'c')
       {
       digitalWrite (pinsMap [i], HIGH);
       pinMode (pinsMap [i], OUTPUT);
@@ -323,21 +469,41 @@ int singleTest (const char * testLine)
       }
     } // end of for each pin
 
-  // pulse clock HIGH
+  // pulse clock (C = high to low, c = low to high)
+
+  byte clocks = 0;
 
   for (i = 0; i < numberOfPins; i++)
+    {
     if (testLine [i] == 'C')
+      {
+      clocks++;
       digitalWrite (pinsMap [i], HIGH);
-
-  delay (10);
-
-  // put clock back to LOW
-
-  for (i = 0; i < numberOfPins; i++)
-    if (testLine [i] == 'C')
+      }
+    else if (testLine [i] == 'c')
+      {
+      clocks++;
       digitalWrite (pinsMap [i], LOW);
-
-  delay (5);
+      }
+    } // end of for each pin
+    
+  // save a few ms by not delaying if we had no clock signals
+  if (clocks)
+    {
+    delay (10);
+  
+    // put clock back to where it was
+  
+    for (i = 0; i < numberOfPins; i++)
+      {
+      if (testLine [i] == 'C')
+        digitalWrite (pinsMap [i], LOW);
+      else if (testLine [i] == 'c')
+        digitalWrite (pinsMap [i], HIGH);
+      } // end of for each pin
+    }
+    
+  delay (10);
 
   // read results
 
@@ -350,7 +516,7 @@ int singleTest (const char * testLine)
         {
         if (failed == 0)
           Serial.println ();
-        Serial.print (F("Pin "));
+        Serial.print (F("  Pin "));
         Serial.print (i + 1);
         Serial.println (F(" should be HIGH but is LOW"));
         failed++;
@@ -363,7 +529,7 @@ int singleTest (const char * testLine)
         {
         if (failed == 0)
           Serial.println ();
-        Serial.print (F("Pin "));
+        Serial.print (F("  Pin "));
         Serial.print (i + 1);
         Serial.println (F(" should be LOW but is HIGH"));
         failed++;
@@ -373,7 +539,9 @@ int singleTest (const char * testLine)
 
   if (failed)
     {
-    Serial.print (F("Failed test: "));
+    Serial.print (F("  ** Failed test "));
+    showNumber (testNumber);
+    Serial.print (F(": "));
     Serial.println (testLine);
     }
   else
@@ -434,6 +602,8 @@ void testChip ()
   for (i = 0; i < numberOfPins; i++)
     pinMode (pinsMap [i], INPUT);
 
+  int testNumber = 0;
+  
   // for each test case
   while (true)
     {
@@ -459,7 +629,8 @@ void testChip ()
         case 'G':  // Gnd
         case '0':  // set input to 0
         case '1':  // set input to 1
-        case 'C':  // pulse clock
+        case 'C':  // pulse clock LOW to HIGH
+        case 'c':  // pulse clock HIGH to LOW
         case 'X':  // ignore this pin
           break;
 
@@ -488,19 +659,22 @@ void testChip ()
     testLine [numberOfPins] = 0;
 
     // now do that test
-    failures += singleTest (testLine);
+    failures += singleTest (testLine, testNumber++);
     }   // end of while (each line)
 
   // set all pins to input afterwards
   for (i = 0; i < numberOfPins; i++)
     pinMode (pinsMap [i], INPUT);
 
-  Serial.println (F("Done."));
+  Serial.print (F("Done - "));
   if (failures)
     {
     Serial.print (failures);
     Serial.println (F(" failure(s)"));
     }
+  else
+    Serial.println (F("Passed."));
+      
   } // end of testChip
 
 // here to process incoming serial data after a terminator received
