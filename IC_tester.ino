@@ -333,7 +333,7 @@ int singleTest (const char * testLine, const int testNumber, const bool verbose)
     }  // end of if we had any clock signals
 
   // let the chip settle into its correct outputs
-  delay (10);  // 5 ms
+  delay (10);  // 10 ms
 
   // read results
 

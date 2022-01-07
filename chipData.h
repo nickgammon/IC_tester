@@ -30,7 +30,7 @@
       rather than LOW->HIGH->LOW I introduced the lower-case code "c" for this action.
 
 
-  (The chip data is stored in PROGMEM (program memory rather than RAM).
+  The chip data is stored in PROGMEM (program memory rather than RAM).
 
   No warranty is given as to the correctness of the file or test data. I have tested on a few
   chips I have to hand and the test data works OK on them. Specifically I have tested these:
