@@ -2,19 +2,19 @@
    CHIP DATA
 
    $xxxx = chip name - used for searching (Note: 74LS00, for example, is here as 7400)
-   xx    = number of pins (currently 14 and 16 supported)
+   nn    = number of pins (currently 14 and 16 supported)
 
    Then one or more lines of 14/16 characters indicating the test condition
    and expected results.
 
    Test data terminated by "$" for the next chip, or "&" for the end of the list.
-   
+
    V = Vcc (ie. +5V)
    G = Gnd
 
    0/1 = Set this pin to LOW/HIGH (output from sketch, input to DuT)
    L/H = Expect LOW/HIGH from device (input into sketch, output from DuT)
-   X =   Ignore (set pin to high impedance and do not test it)
+   X   = Ignore (set pin to high impedance and do not test it)
 
    Clock pulses are for toggling a pin prior to the test (eg. for serial shift registers)
    C =   Pulse clock (normally LOW, pulse to HIGH, and back to LOW)
@@ -24,17 +24,17 @@
   NB: Changed chip 74193 to be different from the file downloaded above.
       According to the datasheet, the clock lines CPD and CPU (clock down and clock up)
       should be high while the other one is pulsed. Thus, they need to be normally high
-      (and pulsed low) to avoid a spurious extra clock pulse. However the chip increments
+      (and pulsed low) to avoid a spurious extra clock pulse. The chip increments
       or decrements the counter on the rising edge. This still works done this way, however
-      the results are not what are shown in the file (link below). To pulse HIGH->LOW rather
-      than LOW->HIGH I introduced the lower-case code "c" for this action.
+      the results are not what are shown in the original test file. To pulse HIGH->LOW->HIGH
+      rather than LOW->HIGH->LOW I introduced the lower-case code "c" for this action.
 
-    
+
   (The chip data is stored in PROGMEM (program memory rather than RAM).
-  
+
   No warranty is given as to the correctness of the file or test data. I have tested on a few
-  chips I have to hand and the test data works OK on them. Specifically:
-    7404, 7408, 7430, 74163, 74173, 74193, 4030
+  chips I have to hand and the test data works OK on them. Specifically I have tested these:
+    7400, 7402, 7404, 7408, 7430, 74163, 74173, 74193, 4011, 4030
 
 */
 

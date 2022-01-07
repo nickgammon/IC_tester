@@ -8,7 +8,7 @@ Date: 6 Jan 2022
 Written and tested on Arduino Uno, however should work on other devices with at least
 16 spare pins for connecting to the device to be tested.
 
-Concepts and chip test data from: https://www.instructables.com/Arduino-IC-Tester/
+Concepts and chip test data from: https://www.instructables.com/Arduino-IC-Tester/ by JorBi.
 
 The page the test data was linked to gave permission for its use:
 
@@ -20,6 +20,13 @@ License: https://creativecommons.org/licenses/by-nc-sa/4.0/
 
 
 DuT = Device under Test
+
+When testing for a LOW output the pin is set to INPUT_PULLUP which will tend to pull that
+signal HIGH, unless the device actively drives it low. Unfortunately there is no INPUT_PULLDOWN
+on the Uno, so testing for a HIGH signal will not be quite as reliable.
+
+For reliably testing a specific chip you could manually wire pulldown resistors to appropriate
+pins.
 
 */
 
@@ -34,9 +41,10 @@ int chipPins14 [14] = {10, 9, 8, 7, 6, 5, 4,        12, A5, A4, A3, A2, A1, A0};
 int chipPins16 [16] = {10, 9, 8, 7, 6, 5, 4, 3, 11, 12, A5, A4, A3, A2, A1, A0};
 
 // These two global variables are set up when a requested chip is found
-int * pinsMap;      // will point to either of the above
-byte numberOfPins;  // how many pins it has
+int * pinsMap = NULL;   // will point to either of the above once chip is located
+byte numberOfPins = 0;  // how many pins it has (14 or 16)
 
+// for forcing the Gnd pin to be ground, bypassing the current-limiting resistors
 byte PIN7_GROUND = 2;
 byte PIN8_GROUND = 13;
 
@@ -54,7 +62,7 @@ const char * chipInfo = NULL;
 
 
 /*
- 
+
   WARNING:
 
     Because Gnd and Vcc are supplied through the (recommended) 330 ohm current-limiting resistors
@@ -64,14 +72,14 @@ const char * chipInfo = NULL;
     (for 14-pin chips) or pin 8 (for 16-pin chips).
 
   WORK-AROUND:
-  
+
     The code below attempts to at least connect Gnd directly to pins 7 or 8 (depending on the chip)
     via an additional couple of wires that bypasses the current-limiting resistor, see documentation
     for more details.
 
     Most (if not all) chips in the test file have ground on pin 7 (for 14-pin chips) and pin 8
     (for 16-pin chips).
-    
+
  */
 
 #include "chipData.h"
@@ -84,6 +92,11 @@ void setup()
   Serial.println (F("IC tester - written by Nick Gammon."));
   Serial.println (F("Version 1.0. Date: 6 January 2022."));
   Serial.println (F("Enter L to list known chips."));
+  Serial.println (F("Otherwise enter a chip code to search for it (eg. '7400')"));
+
+  // testLEDs ();  // Uncomment to test your wiring by putting LEDs (via resistors) into the
+                   // chip socket pins
+
   } // end of setup
 
 // For checking your wiring, put LEDs into each pin on the chip socket
@@ -106,6 +119,7 @@ void testLEDs ()
 
 } // end of testLEDs
 
+// List all known chips
 void listChips ()
   {
   const char * p = chipData;
@@ -131,7 +145,8 @@ void listChips ()
   Serial.println ();
   } // end of listChips
 
-// find a chip in the chip table, return true if found
+// find a chip in the chip table, return true if found, false if not
+// Side-effect: chipInfo is set to point to that chip in the chip information array
 bool searchForChip (const char * which)
   {
   // point to start of known chips data
@@ -155,7 +170,7 @@ bool searchForChip (const char * which)
     else if (c == '\n')
       {
       // finish line if we previously had a chip number
-        
+
       if (gotChip)
         {
         *p = 0;  // terminate name string
@@ -187,13 +202,15 @@ bool searchForChip (const char * which)
   return false;
   } // end of searchForChip
 
+// For space-padding a test number (the argument is zero-relative so we add one to it)
 void showNumber (const int which)
   {
   if (which < 9)
     Serial.print (F(" "));
   Serial.print (which + 1);
   } // end of showNumber
-  
+
+// Do one of the test cases and show the results
 int singleTest (const char * testLine, const int testNumber)
   {
   byte i;
@@ -256,6 +273,14 @@ int singleTest (const char * testLine, const int testNumber)
     // expect a HIGH
     if (testLine [i] == 'H')
       {
+      // briefly write LOW to the pin to try to drain stray
+      // capacitance, so a failed output driver will therefore
+      // read LOW (still) rather than some random noise value
+      //  - we do this because there is not INPUT_PULLDOWN feature
+      //  - the current-limiting resistors should protect the Arduino
+      //    and the chip from this brief pulse
+      digitalWrite (pinsMap [i], LOW);
+      pinMode (pinsMap [i], OUTPUT);
       pinMode (pinsMap [i], INPUT);
       }
     // expect a LOW - so set an input pullup
@@ -265,7 +290,7 @@ int singleTest (const char * testLine, const int testNumber)
       }
     } // end of for each pin
 
-  // pulse clock (C = high to low, c = low to high)
+  // pulse clock (C = LOW->HIGH, c = HIGH->LOW)
 
   byte clocks = 0;
 
@@ -282,14 +307,14 @@ int singleTest (const char * testLine, const int testNumber)
       digitalWrite (pinsMap [i], LOW);
       }
     } // end of for each pin
-    
+
   // save a few ms by not delaying if we had no clock signals
   if (clocks)
     {
-    delay (10);
-  
+    delay (10);  // 10 ms
+
     // put clock back to where it was
-  
+
     for (i = 0; i < numberOfPins; i++)
       {
       if (testLine [i] == 'C')
@@ -297,9 +322,10 @@ int singleTest (const char * testLine, const int testNumber)
       else if (testLine [i] == 'c')
         digitalWrite (pinsMap [i], HIGH);
       } // end of for each pin
-    }
-    
-  delay (10);
+    }  // end of if we had any clock signals
+
+  // let the chip settle into its correct outputs
+  delay (10);  // 5 ms
 
   // read results
 
@@ -316,8 +342,8 @@ int singleTest (const char * testLine, const int testNumber)
         Serial.print (i + 1);
         Serial.println (F(" should be HIGH but is LOW"));
         failed++;
-        }
-      }
+        } // end of failed test (should be HIGH but is not)
+      }  // end of expecting HIGH
     // expect a LOW
     else if (testLine [i] == 'L')
       {
@@ -329,10 +355,11 @@ int singleTest (const char * testLine, const int testNumber)
         Serial.print (i + 1);
         Serial.println (F(" should be LOW but is HIGH"));
         failed++;
-        }
-      }
+        } // end of failed test (should be LOW but is not)
+      } // end of expecting LOW
     } // end of for each pin
 
+  // Show what the failed test was
   if (failed)
     {
     Serial.print (F("  ** Failed test "));
@@ -346,7 +373,18 @@ int singleTest (const char * testLine, const int testNumber)
   return failed;
   } // end of singleTest
 
+// set all chip pins (plus our two ground pins) to INPUT (high-impedance)
+void setAllPinsToInput ()
+  {
+  // set all pins to input initially
+  for (byte i = 0; i < numberOfPins; i++)
+    pinMode (pinsMap [i], INPUT);
 
+  pinMode (PIN7_GROUND, INPUT);
+  pinMode (PIN8_GROUND, INPUT);
+  } // end of setAllPinsToInput
+
+// do all tests for the requested chip
 void testChip ()
   {
   if (chipInfo == NULL)
@@ -361,13 +399,16 @@ void testChip ()
   const char * p = chipInfo;
   byte i;
 
-  // find number of pins
+  // find number of pins - we expect a 2-digit number
   char pinsBuf [3];
   pinsBuf [0] = pgm_read_byte (p++);
   pinsBuf [1] = pgm_read_byte (p++);
   pinsBuf [2] = 0;
 
   numberOfPins = atoi (pinsBuf);
+
+  // that number should be 14 or 16
+  // if so, point to the correct mapping array of Arduino pins to chip pins
 
   switch (numberOfPins)
     {
@@ -393,14 +434,10 @@ void testChip ()
   int failures = 0;
 
   // set all pins to input initially
-  for (i = 0; i < numberOfPins; i++)
-    pinMode (pinsMap [i], INPUT);
-
-  pinMode (PIN7_GROUND, INPUT);
-  pinMode (PIN8_GROUND, INPUT);
+  setAllPinsToInput ();
 
   int testNumber = 0;
-  
+
   // for each test case
   while (true)
     {
@@ -411,6 +448,7 @@ void testChip ()
     for (i = 0; i < numberOfPins; i++)
       {
       char c = pgm_read_byte (p++);
+      // if we hit a $, ^ or end-of-data we are done
       if ((c == '$' || c == 0 || c == '&') && i == 0)
         {
         chipDone = true;
@@ -426,14 +464,18 @@ void testChip ()
         case 'G':  // Gnd
         case '0':  // set input to 0
         case '1':  // set input to 1
-        case 'C':  // pulse clock LOW to HIGH
-        case 'c':  // pulse clock HIGH to LOW
+        case 'C':  // pulse clock LOW->HIGH->LOW
+        case 'c':  // pulse clock HIGH->LOW->HIGH
         case 'X':  // ignore this pin
           break;
 
         default:
-          Serial.print (F("Unexpected test data: "));
-          Serial.println (c);
+          setAllPinsToInput ();
+          Serial.print (F("Unexpected test data: '"));
+          Serial.print (c);
+          Serial.print (F("' in test number "));
+          showNumber (testNumber);
+          Serial.println ();
           return;
 
         } // end of switch
@@ -445,12 +487,15 @@ void testChip ()
    if (chipDone)
      break;
 
-    // check we reached end
-    if (!isspace (pgm_read_byte (p)))
-      {
-      Serial.println (F("Got unexpected chip data - test abandoned"));
-      return;
-      }
+   // check we reached end
+   if (!isspace (pgm_read_byte (p)))
+     {
+     setAllPinsToInput ();
+     Serial.println (F("Expected space/newline, but did not get it in test number "));
+     showNumber (testNumber);
+     Serial.println ();
+     return;
+     }
 
     // terminate test buffer (for printing purposes)
     testLine [numberOfPins] = 0;
@@ -460,24 +505,25 @@ void testChip ()
     }   // end of while (each line)
 
   // set all pins to input afterwards
-  for (i = 0; i < numberOfPins; i++)
-    pinMode (pinsMap [i], INPUT);
-
-  pinMode (PIN7_GROUND, INPUT);
-  pinMode (PIN8_GROUND, INPUT);
+  setAllPinsToInput ();
 
   Serial.print (F("Done - "));
   if (failures)
     {
+    Serial.print (F("FAILED - "));
     Serial.print (failures);
     Serial.println (F(" failure(s)"));
     }
   else
-    Serial.println (F("Passed."));
-      
+    Serial.println (F("passed."));
+
+  Serial.println ();
+  Serial.println (F("Enter T to test another, L to list all chips, or <chip number> to search."));
+  Serial.println ();
+
   } // end of testChip
 
-// here to process incoming serial data after a terminator received
+// here to process incoming serial data after a newline received
 void process_data (const char * data)
   {
   if (strcmp (data, "L") == 0)
@@ -491,6 +537,7 @@ void process_data (const char * data)
 
   }  // end of process_data
 
+// Handle incoming serial data (ie. input from the user)
 // This modified version converts the string to upper case and ignores spaces
 void processIncomingByte (const byte inByte)
   {
@@ -524,7 +571,7 @@ void processIncomingByte (const byte inByte)
 
   } // end of processIncomingByte
 
-
+// main loop - just collect serial data and process it
 void loop()
   {
 
