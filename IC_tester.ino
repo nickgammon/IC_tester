@@ -84,16 +84,21 @@ const char * chipInfo = NULL;
 
 #include "chipData.h"
 
-
+void showHelp ()
+  {
+  Serial.println (F("Enter L to list known chips."));
+  Serial.println (F("Enter S14 to scan for 14-pin chips, or S16 to scan for 16-pin chips."));
+  Serial.println (F("Otherwise enter a chip code to search for it (eg. '7400')"));
+  } // end of showHelp
+  
 void setup()
   {
 
   Serial.begin (115200);
   Serial.println (F("IC tester - written by Nick Gammon."));
   Serial.println (F("Version 1.0. Date: 6 January 2022."));
-  Serial.println (F("Enter L to list known chips."));
-  Serial.println (F("Otherwise enter a chip code to search for it (eg. '7400')"));
-
+  showHelp ();
+  
   // testLEDs ();  // Uncomment to test your wiring by putting LEDs (via resistors) into the
                    // chip socket pins
 
@@ -169,7 +174,7 @@ bool searchForChip (const char * which)
       }
     else if (c == '\n')
       {
-      // finish line if we previously had a chip number
+      // finish name if we previously had a chip number
 
       if (gotChip)
         {
@@ -211,16 +216,19 @@ void showNumber (const int which)
   } // end of showNumber
 
 // Do one of the test cases and show the results
-int singleTest (const char * testLine, const int testNumber)
+int singleTest (const char * testLine, const int testNumber, const bool verbose)
   {
   byte i;
   int failed = 0;
 
-  Serial.print (F("Testing case "));
-  showNumber (testNumber);
-  Serial.print (F(": "));
-  Serial.print (testLine);
-
+  if (verbose)
+    {
+    Serial.print (F("Testing case "));
+    showNumber (testNumber);
+    Serial.print (F(": "));
+    Serial.print (testLine);
+    }
+    
   // set ground to LOW
   for (i = 0; i < numberOfPins; i++)
     if (testLine [i] == 'G')
@@ -336,11 +344,14 @@ int singleTest (const char * testLine, const int testNumber)
       {
       if (digitalRead (pinsMap [i]) != HIGH)
         {
-        if (failed == 0)
-          Serial.println ();
-        Serial.print (F("  Pin "));
-        Serial.print (i + 1);
-        Serial.println (F(" should be HIGH but is LOW"));
+        if (verbose)
+          {
+          if (failed == 0)
+            Serial.println ();
+          Serial.print (F("  Pin "));
+          Serial.print (i + 1);
+          Serial.println (F(" should be HIGH but is LOW"));
+          } // end of if verbose
         failed++;
         } // end of failed test (should be HIGH but is not)
       }  // end of expecting HIGH
@@ -349,27 +360,33 @@ int singleTest (const char * testLine, const int testNumber)
       {
       if (digitalRead (pinsMap [i]) != LOW)
         {
-        if (failed == 0)
-          Serial.println ();
-        Serial.print (F("  Pin "));
-        Serial.print (i + 1);
-        Serial.println (F(" should be LOW but is HIGH"));
+        if (verbose)
+          {
+          if (failed == 0)
+            Serial.println ();
+          Serial.print (F("  Pin "));
+          Serial.print (i + 1);
+          Serial.println (F(" should be LOW but is HIGH"));
+          } // end of if verbose
         failed++;
         } // end of failed test (should be LOW but is not)
       } // end of expecting LOW
     } // end of for each pin
 
   // Show what the failed test was
-  if (failed)
+  if (verbose)
     {
-    Serial.print (F("  ** Failed test "));
-    showNumber (testNumber);
-    Serial.print (F(": "));
-    Serial.println (testLine);
-    }
-  else
-    Serial.println (F(" ok"));
-
+    if (failed)
+      {
+      Serial.print (F("  ** Failed test "));
+      showNumber (testNumber);
+      Serial.print (F(": "));
+      Serial.println (testLine);
+      }
+    else
+      Serial.println (F(" ok"));
+    } // end of if verbose
+    
   return failed;
   } // end of singleTest
 
@@ -385,7 +402,7 @@ void setAllPinsToInput ()
   } // end of setAllPinsToInput
 
 // do all tests for the requested chip
-void testChip ()
+void testChip (const bool verbose)
   {
   if (chipInfo == NULL)
     {
@@ -393,9 +410,12 @@ void testChip ()
     return;
     }
 
-  Serial.print (F("Testing "));
-  Serial.println (chipName);
-
+  if (verbose)
+    {
+    Serial.print (F("Testing "));
+    Serial.println (chipName);
+    } // end of if verbose
+    
   const char * p = chipInfo;
   byte i;
 
@@ -420,14 +440,19 @@ void testChip ()
       break;
 
     default:
-      Serial.print (F("Unsupported number of pins: "));
+      Serial.print (F("Unsupported number of pins for "));
+      Serial.print (chipName);
+      Serial.print (F(": "));
       Serial.println (pinsBuf);
       return;
     }
 
-  Serial.print (F("Number of pins: "));
-  Serial.println (pinsBuf);
-
+  if (verbose)
+    {
+    Serial.print (F("Number of pins: "));
+    Serial.println (pinsBuf);
+    }
+    
   // extract test data line
 
   bool chipDone = false;
@@ -475,7 +500,8 @@ void testChip ()
           Serial.print (c);
           Serial.print (F("' in test number "));
           showNumber (testNumber);
-          Serial.println ();
+          Serial.print (F(" for "));
+          Serial.println (chipName);
           return;
 
         } // end of switch
@@ -493,7 +519,8 @@ void testChip ()
      setAllPinsToInput ();
      Serial.println (F("Expected space/newline, but did not get it in test number "));
      showNumber (testNumber);
-     Serial.println ();
+     Serial.print (F(" for "));
+     Serial.println (chipName);
      return;
      }
 
@@ -501,27 +528,119 @@ void testChip ()
     testLine [numberOfPins] = 0;
 
     // now do that test
-    failures += singleTest (testLine, testNumber++);
+    failures += singleTest (testLine, testNumber++, verbose);
     }   // end of while (each line)
 
   // set all pins to input afterwards
   setAllPinsToInput ();
 
-  Serial.print (F("Done - "));
-  if (failures)
+  if (verbose)
     {
-    Serial.print (F("FAILED - "));
-    Serial.print (failures);
-    Serial.println (F(" failure(s)"));
-    }
+    Serial.print (F("Done - "));
+    if (failures)
+      {
+      Serial.print (F("FAILED - "));
+      Serial.print (failures);
+      Serial.println (F(" failure(s)"));
+      }
+    else
+      Serial.println (F("passed."));
+    } // end of if verbose
   else
-    Serial.println (F("passed."));
+    if (failures == 0)
+      {
+      Serial.print (chipName);
+      Serial.println (F(" detected."));
+      }
 
-  Serial.println ();
-  Serial.println (F("Enter T to test another, L to list all chips, or <chip number> to search."));
-  Serial.println ();
-
+  if (verbose)
+    {
+    Serial.println ();
+    Serial.println (F("Enter T to test another chip of the same type."));
+    showHelp ();
+    Serial.println ();
+    }
+    
   } // end of testChip
+
+void scanChips (const byte pins)
+{
+  // point to start of known chips
+  chipInfo = chipData;
+  Serial.println (F("Scanning for known chips ..."));
+  bool gotChip = false;
+  // this is where we are in chipName at present
+  char * p;
+  byte nameLength;
+  do
+    {
+    const char c = pgm_read_byte (chipInfo++);
+    if (c == 0 || c == '&')
+      break;
+    if (c == '$')
+      {
+      gotChip = true;
+      p = chipName;   // start collecting the name
+      nameLength = 0;
+      }
+    else if (c == '\n')
+      {
+      // finish name if we previously had a chip number
+
+      if (gotChip)
+        {
+        *p = 0;  // terminate name string
+
+        // find number of pins - we expect a 2-digit number
+        char pinsBuf [3];
+        pinsBuf [0] = pgm_read_byte (chipInfo);
+        pinsBuf [1] = pgm_read_byte (chipInfo + 1);
+        pinsBuf [2] = 0;
+      
+        numberOfPins = atoi (pinsBuf);
+      
+        // that number should be 14 or 16
+        // if so, point to the correct mapping array of Arduino pins to chip pins
+      
+        switch (numberOfPins)
+          {
+          case 14:
+            pinsMap = chipPins14;
+            if (pins == 14)
+              testChip (false);   // not verbose
+            break;
+          case 16:
+            pinsMap = chipPins16;
+            if (pins == 16)
+              testChip (false);   // not verbose
+            break;
+      
+          default:
+            Serial.print (F("Unsupported number of pins for "));
+            Serial.print (chipName);
+            Serial.print (F(": "));
+            Serial.println (pinsBuf);
+            break;
+            
+          } // end of switch
+        
+        }  // if on chip name line
+      gotChip = false;
+      }
+    else if (gotChip)
+      {
+      if (nameLength < MAX_INPUT)
+        {
+        *p++ = c;  // save name of the current chip
+        nameLength++;
+        }
+      }
+    } while(true);
+
+   chipInfo = NULL;  // we haven't found a specific chip yet
+   Serial.println (F("Chip scan completed."));
+   
+}  // end of scanChips
 
 // here to process incoming serial data after a newline received
 void process_data (const char * data)
@@ -529,7 +648,11 @@ void process_data (const char * data)
   if (strcmp (data, "L") == 0)
     listChips ();
   else if (strcmp (data, "T") == 0)
-    testChip ();
+    testChip (true);  // verbose output
+  else if (strcmp (data, "S14") == 0)
+    scanChips (14);  // scan for 14-pin chips
+  else if (strcmp (data, "S16") == 0)
+    scanChips (16);  // scan for 16-pin chips
   else if (strcmp (data, "") == 0)
     return;
   else
