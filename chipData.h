@@ -2,9 +2,10 @@
    CHIP DATA
 
    $xxxx = chip name - used for searching (Note: 74LS00, for example, is here as 7400)
-   nn    = number of pins (currently 14 and 16 supported)
+   nn    = number of pins (currently 04, 06, 08, 10, 12, 14, 16 supported).
+           Leading zero required for the cases of 4, 6 and 8 pins.
 
-   Then one or more lines of 14/16 characters indicating the test condition
+   Then one or more lines of 4 to 16 characters indicating the test condition
    and expected results.
 
    Test data terminated by "$" for the next chip, or "&" for the end of the list.
