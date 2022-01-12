@@ -4,6 +4,7 @@ IC tester
 
 Author: Nick Gammon
 Date: 6 Jan 2022
+Modified: 12 Jan 2022
 
 Written and tested on Arduino Uno, however should work on other devices with at least
 16 spare pins for connecting to the device to be tested.
@@ -30,23 +31,50 @@ pins.
 
 */
 
+#define VERSION "1.1"
+#define DATE_MODIFIED "12 January 2022"
+
+//-----------------------------
+// configuration
+//-----------------------------
+
 // Mapping of chip pins (from chip socket) to Arduino pins
 
-// DuT pin:             1  2  3  4  5  6  7          8   9  10  11  12  13  14
-//                     -------------------------------------------------------
-int chipPins14 [14] = {10, 9, 8, 7, 6, 5, 4,        12, A5, A4, A3, A2, A1, A0};
+// DuT pin:                   1  2                                             3   4
+//                           -------------------------------------------------------
+const int chipPins4 [4]   = {10, 9,                                           A1, A0};
 
-// DuT pin:             1  2  3  4  5  6  7  8   9  10  11  12  13  14  15  16
-//                     -------------------------------------------------------
-int chipPins16 [16] = {10, 9, 8, 7, 6, 5, 4, 3, 11, 12, A5, A4, A3, A2, A1, A0};
+// DuT pin:                   1  2  3                                      4   5   6
+//                           -------------------------------------------------------
+const int chipPins6 [6]   = {10, 9, 8,                                    A2, A1, A0};
 
-// These two global variables are set up when a requested chip is found
-int * pinsMap = NULL;   // will point to either of the above once chip is located
-byte numberOfPins = 0;  // how many pins it has (14 or 16)
+// DuT pin:                   1  2  3  4                               5   6   7   8
+//                           -------------------------------------------------------
+const int chipPins8 [8]   = {10, 9, 8, 7,                             A3, A2, A1, A0};
+
+// DuT pin:                   1  2  3  4  5                        6   7   8   9  10
+//                           -------------------------------------------------------
+const int chipPins10 [10] = {10, 9, 8, 7, 6,                      A4, A3, A2, A1, A0};
+
+// DuT pin:                   1  2  3  4  5  6                 7   8   9  10  11  12
+//                           -------------------------------------------------------
+const int chipPins12 [12] = {10, 9, 8, 7, 6, 5,               A5, A4, A3, A2, A1, A0};
+
+// DuT pin:                   1  2  3  4  5  6  7          8   9  10  11  12  13  14
+//                           -------------------------------------------------------
+const int chipPins14 [14] = {10, 9, 8, 7, 6, 5, 4,        12, A5, A4, A3, A2, A1, A0};
+
+// DuT pin:                   1  2  3  4  5  6  7  8   9  10  11  12  13  14  15  16
+//                           -------------------------------------------------------
+const int chipPins16 [16] = {10, 9, 8, 7, 6, 5, 4, 3, 11, 12, A5, A4, A3, A2, A1, A0};
 
 // for forcing the Gnd pin to be ground, bypassing the current-limiting resistors
-byte PIN7_GROUND = 2;
-byte PIN8_GROUND = 13;
+
+const byte DUT_GROUND_A = 7;  // this pin is to be considered Gnd on the DuT (alternative A)
+const byte GROUND_PINA = 2;   // which is wired to this pin on the Arduino
+
+const byte DUT_GROUND_B = 8;  // this pin is to be considered Gnd on the DuT (alternative B)
+const byte GROUND_PINB = 13;  // which is wired to this pin on the Arduino
 
 // how much serial data from the user we expect before a newline
 const unsigned int MAX_INPUT = 16;
@@ -54,12 +82,26 @@ const unsigned int MAX_INPUT = 16;
 // we store each test line in RAM (not PROGMEM) so we need a limit for it
 const byte MAX_PINS = 16;  // for storing one test line
 
+const unsigned int CLOCK_PULSE_WIDTH = 10;  // how long to pulse the clock for (ms)
+const unsigned int DATA_SETTLE_TIME = 10;   // how long to wait for the outputs to settle (ms)
+
+//-----------------------------
+// variables
+//-----------------------------
+
+// These two global variables are set up when a requested chip is found
+const int * pinsMap = NULL;   // will point to either of the above once chip is located
+byte numberOfPins = 0;  // how many pins it has (4, 6, 8, 10, 12, 14 or 16)
+
 // the current chip name
 char chipName [MAX_INPUT + 1];
 
 // pointer to current chip info (starts with number of pins)
 const char * chipInfo = NULL;
 
+// stringification for Arduino IDE version
+#define xstr(s) str(s)
+#define str(s) #s
 
 /*
 
@@ -87,18 +129,19 @@ const char * chipInfo = NULL;
 void showHelp ()
   {
   Serial.println (F("Enter L to list known chips."));
-  Serial.println (F("Enter S14 to scan for 14-pin chips, or S16 to scan for 16-pin chips."));
+  Serial.println (F("Enter S4/S6/S8/S10/S12/S14/S16 to scan for 4 to 16-pin chips."));
   Serial.println (F("Otherwise enter a chip code to search for it (eg. '7400')"));
   } // end of showHelp
-  
+
 void setup()
   {
 
   Serial.begin (115200);
   Serial.println (F("IC tester - written by Nick Gammon."));
-  Serial.println (F("Version 1.0. Date: 6 January 2022."));
+  Serial.println (F("Version " VERSION ". Date: " DATE_MODIFIED "."));
+  Serial.println (F("Compiled on " __DATE__ " at " __TIME__ " with Arduino IDE " xstr(ARDUINO) "."));
   showHelp ();
-  
+
   // testLEDs ();  // Uncomment to test your wiring by putting LEDs (via resistors) into the
                    // chip socket pins
 
@@ -228,7 +271,7 @@ int singleTest (const char * testLine, const int testNumber, const bool verbose)
     Serial.print (F(": "));
     Serial.print (testLine);
     }
-    
+
   // set ground to LOW
   for (i = 0; i < numberOfPins; i++)
     if (testLine [i] == 'G')
@@ -237,15 +280,15 @@ int singleTest (const char * testLine, const int testNumber, const bool verbose)
       pinMode (pinsMap [i], OUTPUT);
 
       // see if ground override possible
-      if (i == 6)  // that is pin 7 since this is zero-relative
+      if ((i + 1) == DUT_GROUND_A)  // i is zero-relative (eg. pin 7 on the DuT)
         {
-        digitalWrite (PIN7_GROUND, LOW);
-        pinMode (PIN7_GROUND, OUTPUT);
+        digitalWrite (GROUND_PINA, LOW);
+        pinMode (GROUND_PINA, OUTPUT);
         }
-      else if (i == 7)  // that is pin 8 since this is zero-relative
+      else if ((i + 1) == DUT_GROUND_B)  // i is zero-relative (eg. pin 8 on the DuT)
         {
-        digitalWrite (PIN8_GROUND, LOW);
-        pinMode (PIN8_GROUND, OUTPUT);
+        digitalWrite (GROUND_PINB, LOW);
+        pinMode (GROUND_PINB, OUTPUT);
         }
     } // end of for each pin
 
@@ -319,7 +362,7 @@ int singleTest (const char * testLine, const int testNumber, const bool verbose)
   // save a few ms by not delaying if we had no clock signals
   if (clocks)
     {
-    delay (10);  // 10 ms
+    delay (CLOCK_PULSE_WIDTH);
 
     // put clock back to where it was
 
@@ -333,7 +376,7 @@ int singleTest (const char * testLine, const int testNumber, const bool verbose)
     }  // end of if we had any clock signals
 
   // let the chip settle into its correct outputs
-  delay (10);  // 10 ms
+  delay (DATA_SETTLE_TIME);
 
   // read results
 
@@ -386,7 +429,7 @@ int singleTest (const char * testLine, const int testNumber, const bool verbose)
     else
       Serial.println (F(" ok"));
     } // end of if verbose
-    
+
   return failed;
   } // end of singleTest
 
@@ -397,8 +440,8 @@ void setAllPinsToInput ()
   for (byte i = 0; i < numberOfPins; i++)
     pinMode (pinsMap [i], INPUT);
 
-  pinMode (PIN7_GROUND, INPUT);
-  pinMode (PIN8_GROUND, INPUT);
+  pinMode (GROUND_PINA, INPUT);
+  pinMode (GROUND_PINB, INPUT);
   } // end of setAllPinsToInput
 
 // do all tests for the requested chip
@@ -415,7 +458,7 @@ void testChip (const bool verbose)
     Serial.print (F("Testing "));
     Serial.println (chipName);
     } // end of if verbose
-    
+
   const char * p = chipInfo;
   byte i;
 
@@ -427,11 +470,26 @@ void testChip (const bool verbose)
 
   numberOfPins = atoi (pinsBuf);
 
-  // that number should be 14 or 16
+  // that number should be an even number between 4 and 16
   // if so, point to the correct mapping array of Arduino pins to chip pins
 
   switch (numberOfPins)
     {
+    case  4:
+      pinsMap = chipPins4;
+      break;
+    case  6:
+      pinsMap = chipPins6;
+      break;
+    case  8:
+      pinsMap = chipPins8;
+      break;
+    case 10:
+      pinsMap = chipPins10;
+      break;
+    case 12:
+      pinsMap = chipPins12;
+      break;
     case 14:
       pinsMap = chipPins14;
       break;
@@ -452,7 +510,7 @@ void testChip (const bool verbose)
     Serial.print (F("Number of pins: "));
     Serial.println (pinsBuf);
     }
-    
+
   // extract test data line
 
   bool chipDone = false;
@@ -560,7 +618,7 @@ void testChip (const bool verbose)
     showHelp ();
     Serial.println ();
     }
-    
+
   } // end of testChip
 
 void scanChips (const byte pins)
@@ -572,6 +630,8 @@ void scanChips (const byte pins)
   // this is where we are in chipName at present
   char * p;
   byte nameLength;
+  int count = 0;
+
   do
     {
     const char c = pgm_read_byte (chipInfo++);
@@ -596,34 +656,53 @@ void scanChips (const byte pins)
         pinsBuf [0] = pgm_read_byte (chipInfo);
         pinsBuf [1] = pgm_read_byte (chipInfo + 1);
         pinsBuf [2] = 0;
-      
+
         numberOfPins = atoi (pinsBuf);
-      
-        // that number should be 14 or 16
+
+        // that number should be an even number between 4 and 16
         // if so, point to the correct mapping array of Arduino pins to chip pins
-      
+
         switch (numberOfPins)
           {
+          case  4:
+            pinsMap = chipPins4;
+            break;
+          case  6:
+            pinsMap = chipPins6;
+            break;
+          case  8:
+            pinsMap = chipPins8;
+            break;
+          case 10:
+            pinsMap = chipPins10;
+            break;
+          case 12:
+            pinsMap = chipPins12;
+            break;
           case 14:
             pinsMap = chipPins14;
-            if (pins == 14)
-              testChip (false);   // not verbose
             break;
           case 16:
             pinsMap = chipPins16;
-            if (pins == 16)
-              testChip (false);   // not verbose
             break;
-      
+
           default:
             Serial.print (F("Unsupported number of pins for "));
             Serial.print (chipName);
             Serial.print (F(": "));
             Serial.println (pinsBuf);
-            break;
-            
+            return;
+
           } // end of switch
-        
+
+        // if our chip matches the number of pins for this test, then see if it tests OK
+
+        if (pins == numberOfPins)
+          {
+          testChip (false);  // not verbose
+          count++;
+          }
+
         }  // if on chip name line
       gotChip = false;
       }
@@ -639,7 +718,12 @@ void scanChips (const byte pins)
 
    chipInfo = NULL;  // we haven't found a specific chip yet
    Serial.println (F("Chip scan completed."));
-   
+   Serial.print (F("Checked against data for "));
+   Serial.print (count);
+   Serial.print (F(" types of "));
+   Serial.print (pins);
+   Serial.println (F("-pin chips."));
+
 }  // end of scanChips
 
 // here to process incoming serial data after a newline received
@@ -649,12 +733,22 @@ void process_data (const char * data)
     listChips ();
   else if (strcmp (data, "T") == 0)
     testChip (true);  // verbose output
+  else if (strcmp (data, "S4") == 0)
+    scanChips (4);  // scan for 4-pin chips
+  else if (strcmp (data, "S6") == 0)
+    scanChips (6);  // scan for 6-pin chips
+  else if (strcmp (data, "S8") == 0)
+    scanChips (8);  // scan for 8-pin chips
+  else if (strcmp (data, "S10") == 0)
+    scanChips (10);  // scan for 10-pin chips
+  else if (strcmp (data, "S12") == 0)
+    scanChips (12);  // scan for 12-pin chips
   else if (strcmp (data, "S14") == 0)
     scanChips (14);  // scan for 14-pin chips
   else if (strcmp (data, "S16") == 0)
     scanChips (16);  // scan for 16-pin chips
   else if (strcmp (data, "") == 0)
-    return;
+    return;  // ignore an empty line
   else
     searchForChip (data);
 
