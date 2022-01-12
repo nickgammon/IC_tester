@@ -21,7 +21,7 @@
    c =   Pulse clock (normally HIGH, pulse to LOW, and back to HIGH)
 
 
-  NB: Changed chip 74193 to be different from the file downloaded above.
+  NB: Changed chip 74193 to be different from the reference file.
       According to the datasheet, the clock lines CPD and CPU (clock down and clock up)
       should be high while the other one is pulsed. Thus, they need to be normally high
       (and pulsed low) to avoid a spurious extra clock pulse. The chip increments
@@ -29,6 +29,9 @@
       the results are not what are shown in the original test file. To pulse HIGH->LOW->HIGH
       rather than LOW->HIGH->LOW I introduced the lower-case code "c" for this action.
 
+      Also changed 74165 to be different from the reference file. The way they had it
+      the /PL (parallel load) and CP (clock) changed in the one line, which clocked out two
+      bits rather than one.
 
   The chip data is stored in PROGMEM (program memory rather than RAM).
 
@@ -1081,9 +1084,9 @@ $74164
 10LLLHGC1HLLLV
 $74165
 16
-0C0000HGL000000V
-0C0100HGL000000V
-1C0100HGL000000V
+000000HGL000000V
+000100HGL000000V
+100100HGL000000V
 1C0010HGL100000V
 1C0001LGH100000V
 1C0000HGL100000V
